@@ -5,6 +5,8 @@ from PIL import Image
 
 import random
 import h5py
+import torch.nn.functional as F
+from torchvision.transforms import functional as FT
 import torch
 import pickle
 from scipy import ndimage
@@ -12,29 +14,35 @@ from scipy.ndimage.interpolation import zoom
 from torch.utils.data import Dataset
 from scipy import ndimage
 from PIL import Image
+from torchvision.transforms import Compose, RandomHorizontalFlip, RandomVerticalFlip
 
 
 class NPY_datasets(Dataset):
     def __init__(self, path_Data, config, train=True):
         super(NPY_datasets, self)
         if train:
-            image_patch_list = sorted(os.listdir(path_Data+'training_pro/image_patch/'))
-            mask_patch_list = sorted(os.listdir(path_Data+'training/gt_patch/'))
+            image_patch_list = sorted(os.listdir(path_Data+'training_pro/img_patch/'))
+            mask_patch_list = sorted(os.listdir(path_Data+'training_pro/gt_patch/'))
             self.data = []
             for i in range(len(image_patch_list)):
-                img_patch_path = path_Data+'training/image_patch/' + image_patch_list[i]
-                mask_patch_path = path_Data+'training/gt_patch/' + mask_patch_list[i]
-                self.data.append([img_patch_path, mask_path])
-            self.transformer = config.train_transformer
+                img_patch_path = path_Data+'training_pro/img_patch/' + image_patch_list[i]
+                mask_patch_path = path_Data+'training_pro/gt_patch/' + mask_patch_list[i]
+                self.data.append([img_patch_path, mask_patch_path])
+            # self.transformer = config.train_transformer
         else:
-            images_list = sorted(os.listdir(path_Data+'test/img/'))
-            masks_list = sorted(os.listdir(path_Data+'test/gt/'))
+            images_list = sorted(os.listdir(path_Data+'test_pro/img/'))
+            masks_list = sorted(os.listdir(path_Data+'test_pro/gt/'))
             self.data = []
             for i in range(len(images_list)):
-                img_path = path_Data+'test/img/' + images_list[i]
-                mask_path = path_Data+'test/gt/' + masks_list[i]
+                img_path = path_Data+'test_pro/img/' + images_list[i]
+                mask_path = path_Data+'test_pro/gt/' + masks_list[i]
                 self.data.append([img_path, mask_path])
-            self.transformer = config.test_transformer
+            # self.transformer = config.test_transformer
+        self.transforms = Compose([
+            RandomHorizontalFlip(p=0.5),
+            RandomVerticalFlip(p=0.5),
+            Fix_RandomRotation(),
+        ])
         
     def __getitem__(self, indx):
         img_path, msk_path = self.data[indx]
@@ -43,7 +51,12 @@ class NPY_datasets(Dataset):
         with open(file=msk_path, mode='rb') as file:
             msk = torch.from_numpy(pickle.load(file)).float()
 
-        img, msk = self.transformer((img, msk))
+        seed = torch.seed()
+        torch.manual_seed(seed)
+        img = self.transforms(img)
+        torch.manual_seed(seed)
+        msk = self.transforms(msk)
+            
         return img, msk
 
     def __len__(self):
@@ -112,7 +125,7 @@ class Fix_RandomRotation(object):
 
     def __call__(self, img):
         angle = self.get_params()
-        return F.rotate(img, angle, self.resample, self.expand, self.center)
+        return FT.rotate(img, angle, self.resample, self.expand, self.center)
 
     def __repr__(self):
         format_string = self.__class__.__name__ + \
@@ -124,30 +137,3 @@ class Fix_RandomRotation(object):
         format_string += ')'
         return format_string
 
-class Synapse_dataset(Dataset):
-    def __init__(self, base_dir, list_dir, split, transform=None):
-        self.transform = transform  # using transform in torch!
-        self.split = split
-        self.sample_list = open(os.path.join(list_dir, self.split+'.txt')).readlines()
-        self.data_dir = base_dir
-
-    def __len__(self):
-        return len(self.sample_list)
-
-    def __getitem__(self, idx):
-        if self.split == "train":
-            slice_name = self.sample_list[idx].strip('\n')
-            data_path = os.path.join(self.data_dir, slice_name+'.npz')
-            data = np.load(data_path)
-            image, label = data['image'], data['label']
-        else:
-            vol_name = self.sample_list[idx].strip('\n')
-            filepath = self.data_dir + "/{}.npy.h5".format(vol_name)
-            data = h5py.File(filepath)
-            image, label = data['image'][:], data['label'][:]
-
-        sample = {'image': image, 'label': label}
-        if self.transform:
-            sample = self.transform(sample)
-        sample['case_name'] = self.sample_list[idx].strip('\n')
-        return sample

@@ -2,7 +2,7 @@ from torchvision import transforms
 from utils import *
 from torchvision.transforms import Compose, RandomHorizontalFlip, RandomVerticalFlip
 from datetime import datetime
-from datasets import Fix_RandomRotation
+from datasets.dataset import Fix_RandomRotation
 
 class setting_config:
     """
