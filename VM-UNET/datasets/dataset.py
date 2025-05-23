@@ -2,11 +2,11 @@ from torch.utils.data import Dataset
 import numpy as np
 import os
 from PIL import Image
-import pickle
 
 import random
 import h5py
 import torch
+import pickle
 from scipy import ndimage
 from scipy.ndimage.interpolation import zoom
 from torch.utils.data import Dataset
@@ -18,59 +18,38 @@ class NPY_datasets(Dataset):
     def __init__(self, path_Data, config, train=True):
         super(NPY_datasets, self)
         if train:
-            files = sorted(os.listdir(path_Data+'training_pro/'))
-            self.image_files = self._select_img(self.files)
-            # self.data = []
-            # # for i in range(len(images_list)):
-            # #     img_path = path_Data+'train/images/' + images_list[i]
-            # #     mask_path = path_Data+'train/masks/' + masks_list[i]
-            # #     self.data.append([img_path, mask_path])
+            image_patch_list = sorted(os.listdir(path_Data+'training_pro/image_patch/'))
+            mask_patch_list = sorted(os.listdir(path_Data+'training/gt_patch/'))
+            self.data = []
+            for i in range(len(image_patch_list)):
+                img_patch_path = path_Data+'training/image_patch/' + image_patch_list[i]
+                mask_patch_path = path_Data+'training/gt_patch/' + mask_patch_list[i]
+                self.data.append([img_patch_path, mask_path])
             self.transformer = config.train_transformer
         else:
-            images_list = sorted(os.listdir(path_Data+'test_pro/'))
-            masks_list = sorted(os.listdir(path_Data+'test_pro/'))
-            # self.data = []
-            # for i in range(len(images_list)):
-            #     img_path = path_Data+'val/images/' + images_list[i]
-            #     mask_path = path_Data+'val/masks/' + masks_list[i]
-            #     self.data.append([img_path, mask_path])
+            images_list = sorted(os.listdir(path_Data+'test/img/'))
+            masks_list = sorted(os.listdir(path_Data+'test/gt/'))
+            self.data = []
+            for i in range(len(images_list)):
+                img_path = path_Data+'test/img/' + images_list[i]
+                mask_path = path_Data+'test/gt/' + masks_list[i]
+                self.data.append([img_path, mask_path])
             self.transformer = config.test_transformer
-        self.transforms = Compose([
-            RandomHorizontalFlip(p=0.5),
-            RandomVerticalFlip(p=0.5),
-            Fix_RandomRotation(),
-        ])
         
     def __getitem__(self, indx):
-        # img_path, msk_path = self.data[indx]
-        # img = np.array(Image.open(img_path).convert('RGB'))
-        # msk = np.expand_dims(np.array(Image.open(msk_path).convert('L')), axis=2) / 255
-        # img, msk = self.transformer((img, msk))
-        # return img, msk
-        image_file = self.image_files[indx]
-        with open(file=os.path.join(self.data_path, image_file), mode='rb') as file:
+        img_path, msk_path = self.data[indx]
+        with open(file=img_path, mode='rb') as file:
             img = torch.from_numpy(pickle.load(file)).float()
-        gt_file = "gt" + img_file[3:]
-        with open(file=os.path.join(self.data_path, gt_file), mode='rb') as file:
-            gt = torch.from_numpy(pickle.load(file)).float()
-        
-        seed = torch.seed()
-            torch.manual_seed(seed)
-            img = self.transforms(img)
-            torch.manual_seed(seed)
-            gt = self.transforms(gt)
-        return img, gt
+        with open(file=msk_path, mode='rb') as file:
+            msk = torch.from_numpy(pickle.load(file)).float()
+
+        img, msk = self.transformer((img, msk))
+        return img, msk
 
     def __len__(self):
-        return len(self.image_files)
+        return len(self.data)
     
-    def _select_img(self, file_list):
-        img_list = []
-        for file in file_list:
-            if file[:3] == "img":
-                img_list.append(file)
 
-        return img_list
 
 def random_rot_flip(image, label):
     k = np.random.randint(0, 4)
@@ -109,6 +88,41 @@ class RandomGenerator(object):
         sample = {'image': image, 'label': label.long()}
         return sample
 
+class Fix_RandomRotation(object):
+
+    def __init__(self, degrees=360, resample=False, expand=False, center=None):
+        self.degrees = degrees
+        self.resample = resample
+        self.expand = expand
+        self.center = center
+
+    @staticmethod
+    def get_params():
+        p = torch.rand(1)
+
+        if p >= 0 and p < 0.25:
+            angle = -180
+        elif p >= 0.25 and p < 0.5:
+            angle = -90
+        elif p >= 0.5 and p < 0.75:
+            angle = 90
+        else:
+            angle = 0
+        return angle
+
+    def __call__(self, img):
+        angle = self.get_params()
+        return F.rotate(img, angle, self.resample, self.expand, self.center)
+
+    def __repr__(self):
+        format_string = self.__class__.__name__ + \
+            '(degrees={0}'.format(self.degrees)
+        format_string += ', resample={0}'.format(self.resample)
+        format_string += ', expand={0}'.format(self.expand)
+        if self.center is not None:
+            format_string += ', center={0}'.format(self.center)
+        format_string += ')'
+        return format_string
 
 class Synapse_dataset(Dataset):
     def __init__(self, base_dir, list_dir, split, transform=None):
@@ -137,5 +151,3 @@ class Synapse_dataset(Dataset):
             sample = self.transform(sample)
         sample['case_name'] = self.sample_list[idx].strip('\n')
         return sample
-        
-    

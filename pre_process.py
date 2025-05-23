@@ -106,8 +106,8 @@ def get_patch(imgs_list, patch_size, stride):
 
 
 def save_patch(imgs_list, path, type, name):
-    image_path = os.path.join(path, type)   # Add 'image' subfolder
-    os.makedirs(image_path, exist_ok=True)  # Create it if it doesn't exist
+    image_path = os.path.join(path, type)   
+    os.makedirs(image_path, exist_ok=True)  
 
     for i, sub in enumerate(imgs_list):
         with open(file=os.path.join(image_path, f'{type}_{i}.pkl'), mode='wb') as file:
@@ -116,8 +116,8 @@ def save_patch(imgs_list, path, type, name):
 
 
 def save_each_image(imgs_list, path, type, name):
-    image_path = os.path.join(path, type)   # Add 'image' subfolder
-    os.makedirs(image_path, exist_ok=True)  # Create it if it doesn't exist
+    image_path = os.path.join(path, type)   
+    os.makedirs(image_path, exist_ok=True)  
 
     for i, sub in enumerate(imgs_list):
         with open(file=os.path.join(image_path, f'{type}_{i}.pkl'), mode='wb') as file:

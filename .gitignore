@@ -175,3 +175,9 @@ cython_debug/
 
 # macOS .DS_Store
 .DS_Store
+
+#ignore pre-trained weight
+VM-UNET/pre_trained_weights/
+
+#ignore data
+VM-UNET/data/
