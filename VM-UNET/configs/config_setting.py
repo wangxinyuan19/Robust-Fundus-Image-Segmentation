@@ -1,8 +1,7 @@
 from torchvision import transforms
 from utils import *
-from torchvision.transforms import Compose, RandomHorizontalFlip, RandomVerticalFlip
+
 from datetime import datetime
-from datasets.dataset import Fix_RandomRotation
 
 class setting_config:
     """
@@ -21,12 +20,8 @@ class setting_config:
     }
 
     datasets = 'drive' 
-    if datasets == 'isic18':
-        data_path = './data/isic2018/'
-    elif datasets == 'isic17':
-        data_path = './data/isic2017/'
-    elif datasets == 'drive':
-        data_path = './data/DRIVE/'
+    if datasets == 'drive':
+        data_path = './data/DRIVE_patches/'
     else:
         raise Exception('datasets in not right!')
 
@@ -34,9 +29,9 @@ class setting_config:
 
     pretrained_path = './pre_trained/'
     num_classes = 1
-    input_size_h = 48
-    input_size_w = 48
-    input_channels = 1
+    input_size_h = 256
+    input_size_w = 256
+    input_channels = 3
     distributed = False
     local_rank = -1
     num_workers = 0
@@ -54,30 +49,21 @@ class setting_config:
     val_interval = 30
     save_interval = 100
     threshold = 0.5
+    only_test_and_save_figs = False
+    best_ckpt_path = 'PATH_TO_YOUR_BEST_CKPT'
+    img_save_path = 'PATH_TO_SAVE_IMAGES'
 
-    # train_transformer = transforms.Compose([
-    #     myNormalize(datasets, train=True),
-    #     myToTensor(),
-    #     myRandomHorizontalFlip(p=0.5),
-    #     myRandomVerticalFlip(p=0.5),
-    #     myRandomRotation(p=0.5, degree=[0, 360]),
-    #     myResize(input_size_h, input_size_w)
-    # ])
-    # test_transformer = transforms.Compose([
-    #     myNormalize(datasets, train=False),
-    #     myToTensor(),
-    #     myResize(input_size_h, input_size_w)
-    # ])
-    train_transformer = Compose([
-            RandomHorizontalFlip(p=0.5),
-            RandomVerticalFlip(p=0.5),
-            Fix_RandomRotation(),
-        ])
-    test_transformer = Compose([
-            RandomHorizontalFlip(p=0.5),
-            RandomVerticalFlip(p=0.5),
-            Fix_RandomRotation(),
-        ])
+    train_transformer = transforms.Compose([
+        myToTensor(),
+        myRandomHorizontalFlip(p=0.5),
+        myRandomVerticalFlip(p=0.5),
+        myRandomRotation(p=0.5, degree=[0, 360]),
+        myResize(input_size_h, input_size_w)
+    ])
+    test_transformer = transforms.Compose([
+        myToTensor(),
+        myResize(input_size_h, input_size_w)
+    ])
 
     opt = 'AdamW'
     assert opt in ['Adadelta', 'Adagrad', 'Adam', 'AdamW', 'Adamax', 'ASGD', 'RMSprop', 'Rprop', 'SGD'], 'Unsupported optimizer!'

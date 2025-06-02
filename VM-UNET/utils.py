@@ -413,43 +413,43 @@ class myRandomRotation:
         else: return image, mask 
 
 
-class myNormalize:
-    def __init__(self, data_name, train=True):
-        if data_name == 'isic18':
-            if train:
-                self.mean = 157.561
-                self.std = 26.706
-            else:
-                self.mean = 149.034
-                self.std = 32.022
-        elif data_name == 'isic17':
-            if train:
-                self.mean = 159.922
-                self.std = 28.871
-            else:
-                self.mean = 148.429
-                self.std = 25.748
-        elif data_name == 'isic18_82':
-            if train:
-                self.mean = 156.2899
-                self.std = 26.5457
-            else:
-                self.mean = 149.8485
-                self.std = 35.3346
-        elif data_name == 'drive':
-            if train:
-                self.mean = 156.2899
-                self.std = 26.5457
-            else:
-                self.mean = 149.8485
-                self.std = 35.3346
+# class myNormalize:
+#     def __init__(self, data_name, train=True):
+#         if data_name == 'isic18':
+#             if train:
+#                 self.mean = 157.561
+#                 self.std = 26.706
+#             else:
+#                 self.mean = 149.034
+#                 self.std = 32.022
+#         elif data_name == 'isic17':
+#             if train:
+#                 self.mean = 159.922
+#                 self.std = 28.871
+#             else:
+#                 self.mean = 148.429
+#                 self.std = 25.748
+#         elif data_name == 'isic18_82':
+#             if train:
+#                 self.mean = 156.2899
+#                 self.std = 26.5457
+#             else:
+#                 self.mean = 149.8485
+#                 self.std = 35.3346
+#         elif data_name == 'drive':
+#             if train:
+#                 self.mean = 156.2899
+#                 self.std = 26.5457
+#             else:
+#                 self.mean = 149.8485
+#                 self.std = 35.3346
             
-    def __call__(self, data):
-        img, msk = data
-        img_normalized = (img-self.mean)/self.std
-        img_normalized = ((img_normalized - np.min(img_normalized)) 
-                            / (np.max(img_normalized)-np.min(img_normalized))) * 255.
-        return img_normalized, msk
+#     def __call__(self, data):
+#         img, msk = data
+#         img_normalized = (img-self.mean)/self.std
+#         img_normalized = ((img_normalized - np.min(img_normalized)) 
+#                             / (np.max(img_normalized)-np.min(img_normalized))) * 255.
+#         return img_normalized, msk
     
 
 
