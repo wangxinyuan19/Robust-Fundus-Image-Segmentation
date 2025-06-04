@@ -62,7 +62,7 @@ def val_one_epoch(test_loader,
     gts = []
     loss_list = []
     with torch.no_grad():
-        for data in tqdm(test_loader):
+        for i, data in enumerate(tqdm(test_loader)):
             img, msk = data
             img, msk = img.cuda(non_blocking=True).float(), msk.cuda(non_blocking=True).float()
 
@@ -70,11 +70,14 @@ def val_one_epoch(test_loader,
             loss = criterion(out, msk)
 
             loss_list.append(loss.item())
-            gts.append(msk.squeeze(1).cpu().detach().numpy())
+            msk = msk.squeeze(1).cpu().detach().numpy()
+            gts.append(msk)
             if type(out) is tuple:
                 out = out[0]
             out = out.squeeze(1).cpu().detach().numpy()
             preds.append(out) 
+            if i % config.save_interval == 0:
+                save_imgs(img, msk, out, i, config.work_dir + 'outputs/epoch' + str(epoch) + '/', config.datasets, config.threshold, test_data_name="DRIVE")
 
     if epoch % config.val_interval == 0:
         preds = np.array(preds).reshape(-1)

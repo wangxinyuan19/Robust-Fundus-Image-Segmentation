@@ -181,3 +181,6 @@ VM-UNET/pre_trained_weights/
 
 #ignore data
 VM-UNET/data/
+
+#ignore results
+VM-UNET/results

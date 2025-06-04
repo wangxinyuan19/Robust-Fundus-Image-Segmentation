@@ -21,16 +21,18 @@ class setting_config:
 
     datasets = 'drive' 
     if datasets == 'drive':
-        data_path = './data/DRIVE_patches/'
+        data_path = './data/patches/'
     else:
         raise Exception('datasets in not right!')
 
-    criterion = BceDiceLoss(wb=1, wd=1)
+    criterion = BceDiceLoss(wb=0.2, wd=1.8)
 
     pretrained_path = './pre_trained/'
     num_classes = 1
-    input_size_h = 256
-    input_size_w = 256
+    input_size_h = 64
+    input_size_w = 64
+    test_input_size_h = 768
+    test_input_size_w = 768
     input_channels = 3
     distributed = False
     local_rank = -1
@@ -40,13 +42,13 @@ class setting_config:
     rank = None
     amp = False
     gpu_id = '0'
-    batch_size = 32
-    epochs = 300
+    batch_size = 512
+    epochs = 40
 
     work_dir = 'results/' + network + '_' + datasets + '_' + datetime.now().strftime('%A_%d_%B_%Y_%Hh_%Mm_%Ss') + '/'
 
     print_interval = 20
-    val_interval = 30
+    val_interval = 4
     save_interval = 100
     threshold = 0.5
     only_test_and_save_figs = False
@@ -62,7 +64,7 @@ class setting_config:
     ])
     test_transformer = transforms.Compose([
         myToTensor(),
-        myResize(input_size_h, input_size_w)
+        myResize(test_input_size_h, test_input_size_w)
     ])
 
     opt = 'AdamW'

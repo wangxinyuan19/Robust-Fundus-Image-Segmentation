@@ -4,9 +4,9 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-PATCH_SIZE = 128
-STRIDE = 64
-SAVE_DIR = "./patches"
+PATCH_SIZE = 64
+STRIDE = 12
+SAVE_DIR = "./VM-UNET/data/patches"
 IMAGE_DIR = "DRIVE/training/images"
 MASK_DIR = "DRIVE/training/1st_manual"
 
