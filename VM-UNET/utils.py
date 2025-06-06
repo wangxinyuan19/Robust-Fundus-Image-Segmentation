@@ -377,13 +377,24 @@ class myToTensor:
         return torch.tensor(image).permute(2,0,1), torch.tensor(mask).permute(2,0,1)
        
 
-class myResize:
+'''class myResize:
     def __init__(self, size_h=256, size_w=256):
         self.size_h = size_h
         self.size_w = size_w
     def __call__(self, data):
         image, mask = data
-        return TF.resize(image, [self.size_h, self.size_w]), TF.resize(mask, [self.size_h, self.size_w])
+        return TF.resize(image, [self.size_h, self.size_w]), TF.resize(mask, [self.size_h, self.size_w])'''
+
+class myResize:
+    def __init__(self, size_h=256, size_w=256):
+        self.size_h = size_h
+        self.size_w = size_w
+
+    def __call__(self, data):
+        image, mask = data
+        image = TF.resize(image, [self.size_h, self.size_w], interpolation=TF.InterpolationMode.BILINEAR)
+        mask = TF.resize(mask, [self.size_h, self.size_w], interpolation=TF.InterpolationMode.NEAREST)
+        return image, mask
        
 
 class myRandomHorizontalFlip:

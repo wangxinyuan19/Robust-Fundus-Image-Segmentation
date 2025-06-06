@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 import timm
 from datasets.dataset import NPY_datasets
+from datasets.dataset import FullDataset, PatchDataset
 from tensorboardX import SummaryWriter
 from models.vmunet.vmunet import VMUNet
 
@@ -51,13 +52,23 @@ def main(config):
 
 
     print('#----------Preparing dataset----------#')
-    train_dataset = NPY_datasets(config.data_path, config, train=True)
-    train_loader = DataLoader(train_dataset,
+    #train_dataset = NPY_datasets(config.data_path, config, train=True)
+    full_dataset = FullDataset(config.data_path, config, train=True)
+    patch_dataset = PatchDataset(config.data_path, config)
+    full_loader = DataLoader(full_dataset, batch_size=config.batch_size_full, shuffle=True,
+                                pin_memory=True,
+                                num_workers=config.num_workers)
+    patch_loader = DataLoader(patch_dataset, batch_size=config.batch_size_patch, shuffle=True,
+                                pin_memory=True,
+                                num_workers=config.num_workers)
+
+    '''train_loader = DataLoader(train_dataset,
                                 batch_size=config.batch_size, 
                                 shuffle=True,
                                 pin_memory=True,
-                                num_workers=config.num_workers)
-    val_dataset = NPY_datasets(config.data_path, config, train=False)
+                                num_workers=config.num_workers)'''
+    val_dataset = FullDataset(config.data_path, config, train=False)
+
     val_loader = DataLoader(val_dataset,
                                 batch_size=1,
                                 shuffle=False,
@@ -131,7 +142,7 @@ def main(config):
 
         torch.cuda.empty_cache()
 
-        step = train_one_epoch(
+        '''step = train_one_epoch(
             train_loader,
             model,
             criterion,
@@ -142,7 +153,21 @@ def main(config):
             logger,
             config,
             writer
+        )'''
+        step = train_one_epoch_dual(
+            full_loader,
+            patch_loader,
+            model,
+            criterion,
+            optimizer,
+            scheduler,
+            epoch,
+            step,
+            logger,
+            config,
+            writer
         )
+
 
         loss = val_one_epoch(
                 val_loader,

@@ -12,6 +12,65 @@ from torch.utils.data import Dataset
 from scipy import ndimage
 from PIL import Image
 
+from torch.utils.data import Dataset
+from PIL import Image
+import numpy as np
+import os
+
+class FullDataset(Dataset):
+    def __init__(self, path_Data, config, train=True):
+        self.config = config
+        self.train = train
+
+        if train:
+            base_path = os.path.join(path_Data, 'training/full')
+            self.transformer = config.train_full_transformer
+        else:
+            base_path = os.path.join(path_Data, 'test')
+            self.transformer = config.test_transformer
+
+        images_list = sorted(os.listdir(os.path.join(base_path, 'images')))
+        masks_list = sorted(os.listdir(os.path.join(base_path, 'masks')))
+
+        self.data = [
+            [os.path.join(base_path, 'images', img), os.path.join(base_path, 'masks', msk)]
+            for img, msk in zip(images_list, masks_list)
+        ]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        img_path, msk_path = self.data[index]
+        img = np.array(Image.open(img_path).convert('RGB'))
+        msk = np.expand_dims(np.array(Image.open(msk_path).convert('L')), axis=2) / 255.0
+        img, msk = self.transformer((img, msk))
+        return img, msk
+
+class PatchDataset(Dataset):
+    def __init__(self, path_Data, config):
+        self.config = config
+        self.transformer = config.train_patch_transformer
+
+        base_path = os.path.join(path_Data, 'training/patch')
+        images_list = sorted(os.listdir(os.path.join(base_path, 'images')))
+        masks_list = sorted(os.listdir(os.path.join(base_path, 'masks')))
+
+        self.data = [
+            [os.path.join(base_path, 'images', img), os.path.join(base_path, 'masks', msk)]
+            for img, msk in zip(images_list, masks_list)
+        ]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        img_path, msk_path = self.data[index]
+        img = np.array(Image.open(img_path).convert('RGB'))
+        msk = np.expand_dims(np.array(Image.open(msk_path).convert('L')), axis=2) / 255.0
+        img, msk = self.transformer((img, msk))
+        return img, msk
+
 
 class NPY_datasets(Dataset):
     def __init__(self, path_Data, config, train=True):

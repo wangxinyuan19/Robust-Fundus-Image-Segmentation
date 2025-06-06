@@ -21,16 +21,22 @@ class setting_config:
 
     datasets = 'drive' 
     if datasets == 'drive':
-        data_path = './data/patches/'
+        data_path = './data/DRIVE/'
+    elif datasets == 'chase_db1':
+        data_path = './data/CHASEDB1/'
+    elif datasets == 'stare':
+        data_path = './data/STARE/'
     else:
         raise Exception('datasets in not right!')
 
-    criterion = BceDiceLoss(wb=0.2, wd=1.8)
+    criterion = BceDiceLoss(wb=0.6, wd=1.4)
 
     pretrained_path = './pre_trained/'
     num_classes = 1
-    input_size_h = 64
-    input_size_w = 64
+    full_input_size_h = 768
+    full_input_size_w = 768
+    patch_input_size_h = 64
+    patch_input_size_w = 64
     test_input_size_h = 768
     test_input_size_w = 768
     input_channels = 3
@@ -42,26 +48,36 @@ class setting_config:
     rank = None
     amp = False
     gpu_id = '0'
-    batch_size = 512
-    epochs = 40
+    batch_size_full = 2
+    batch_size_patch = 512
+    epochs = 50
 
     work_dir = 'results/' + network + '_' + datasets + '_' + datetime.now().strftime('%A_%d_%B_%Y_%Hh_%Mm_%Ss') + '/'
 
-    print_interval = 20
-    val_interval = 4
-    save_interval = 100
+    print_interval = 10
+    val_interval = 10
+    save_interval = 10
     threshold = 0.5
     only_test_and_save_figs = False
     best_ckpt_path = 'PATH_TO_YOUR_BEST_CKPT'
     img_save_path = 'PATH_TO_SAVE_IMAGES'
 
-    train_transformer = transforms.Compose([
+    train_full_transformer = transforms.Compose([ 
         myToTensor(),
         myRandomHorizontalFlip(p=0.5),
         myRandomVerticalFlip(p=0.5),
         myRandomRotation(p=0.5, degree=[0, 360]),
-        myResize(input_size_h, input_size_w)
+        myResize(full_input_size_h, full_input_size_w)
     ])
+
+    train_patch_transformer = transforms.Compose([
+        myToTensor(),
+        myRandomHorizontalFlip(p=0.5),
+        myRandomVerticalFlip(p=0.5),
+        myRandomRotation(p=0.5, degree=[0, 360]),
+        myResize(patch_input_size_h, patch_input_size_w)
+    ])
+
     test_transformer = transforms.Compose([
         myToTensor(),
         myResize(test_input_size_h, test_input_size_w)

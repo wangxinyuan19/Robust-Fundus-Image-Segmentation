@@ -5,6 +5,53 @@ from torch.cuda.amp import autocast as autocast
 from sklearn.metrics import confusion_matrix
 from utils import save_imgs
 
+def train_one_epoch_dual(full_loader, patch_loader, model, criterion, optimizer, scheduler, epoch, step, logger, config, writer):
+    model.train()
+
+    full_iter = iter(full_loader)
+    patch_iter = iter(patch_loader)
+    len_epoch = max(len(full_loader), len(patch_loader))  # or max/avg based on preference
+    
+    loss_list = []
+
+    for i in range(len_epoch * 2):
+        # Get next patch batch
+        try:
+            patch_batch = next(patch_iter)
+        except StopIteration:
+            patch_iter = iter(patch_loader)
+            patch_batch = next(patch_iter)
+
+        # Get next full batch
+        try:
+            full_batch = next(full_iter)
+        except StopIteration:
+            full_iter = iter(full_loader)
+            full_batch = next(full_iter)
+
+        # Choose batch to train on
+        batch = patch_batch if i % 2 == 0 else full_batch
+        inputs, targets = batch
+        inputs, targets = inputs.cuda(non_blocking=True).float(), targets.cuda(non_blocking=True).float()
+
+        step += 1
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+
+        loss_list.append(loss.item())
+
+        now_lr = optimizer.state_dict()['param_groups'][0]['lr']
+        writer.add_scalar('loss', loss, global_step=step)
+
+        if step % config.print_interval == 0:
+            log_info = f'train: epoch {epoch}, iter:{step}, loss: {np.mean(loss_list):.4f}, lr: {now_lr}'
+            print(log_info)
+            logger.info(log_info)
+    scheduler.step()
+    return step
 
 def train_one_epoch(train_loader,
                     model,
