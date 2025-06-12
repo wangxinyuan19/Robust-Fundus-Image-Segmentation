@@ -52,23 +52,36 @@ def main(config):
 
 
     print('#----------Preparing dataset----------#')
-    #train_dataset = NPY_datasets(config.data_path, config, train=True)
-    full_dataset = FullDataset(config.data_path, config, train=True)
+    '''full_dataset = FullDataset(config.data_path, config, train=True)
     patch_dataset = PatchDataset(config.data_path, config)
     full_loader = DataLoader(full_dataset, batch_size=config.batch_size_full, shuffle=True,
                                 pin_memory=True,
                                 num_workers=config.num_workers)
     patch_loader = DataLoader(patch_dataset, batch_size=config.batch_size_patch, shuffle=True,
                                 pin_memory=True,
-                                num_workers=config.num_workers)
+                                num_workers=config.num_workers)'''
 
     '''train_loader = DataLoader(train_dataset,
                                 batch_size=config.batch_size, 
                                 shuffle=True,
                                 pin_memory=True,
-                                num_workers=config.num_workers)'''
+                                num_workers=config.num_workers)
     val_dataset = FullDataset(config.data_path, config, train=False)
 
+    val_loader = DataLoader(val_dataset,
+                                batch_size=1,
+                                shuffle=False,
+                                pin_memory=True, 
+                                num_workers=config.num_workers,
+                                drop_last=True)'''
+    
+    train_dataset = NPY_datasets(config.data_path, config, train=True)
+    train_loader = DataLoader(train_dataset,
+                                batch_size=config.batch_size, 
+                                shuffle=True,
+                                pin_memory=True,
+                                num_workers=config.num_workers)
+    val_dataset = NPY_datasets(config.data_path, config, train=False)
     val_loader = DataLoader(val_dataset,
                                 batch_size=1,
                                 shuffle=False,
@@ -91,7 +104,7 @@ def main(config):
             drop_path_rate=model_cfg['drop_path_rate'],
             load_ckpt_path=model_cfg['load_ckpt_path'],
         )
-        model.load_from()
+        #model.load_from()
         
     else: raise Exception('network in not right!')
     model = model.cuda()
@@ -142,7 +155,7 @@ def main(config):
 
         torch.cuda.empty_cache()
 
-        '''step = train_one_epoch(
+        step = train_one_epoch(
             train_loader,
             model,
             criterion,
@@ -153,8 +166,8 @@ def main(config):
             logger,
             config,
             writer
-        )'''
-        step = train_one_epoch_dual(
+        )
+        '''step = train_one_epoch_dual(
             full_loader,
             patch_loader,
             model,
@@ -166,7 +179,7 @@ def main(config):
             logger,
             config,
             writer
-        )
+        )'''
 
 
         loss = val_one_epoch(

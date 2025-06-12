@@ -246,7 +246,6 @@ class Final_PatchExpand2D(nn.Module):
 
         return x
 
-
 class SS2D(nn.Module):
     def __init__(
         self,
@@ -294,9 +293,13 @@ class SS2D(nn.Module):
             nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
             nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
             nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs),
             nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs), 
+            nn.Linear(self.d_inner, (self.dt_rank + self.d_state * 2), bias=False, **factory_kwargs)
         )
-        self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K=4, N, inner)
+        self.x_proj_weight = nn.Parameter(torch.stack([t.weight for t in self.x_proj], dim=0)) # (K=8, N, inner)
         del self.x_proj
 
         self.dt_projs = (
@@ -304,13 +307,17 @@ class SS2D(nn.Module):
             self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
             self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
             self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs),
+            self.dt_init(self.dt_rank, self.d_inner, dt_scale, dt_init, dt_min, dt_max, dt_init_floor, **factory_kwargs)
         )
-        self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K=4, inner, rank)
-        self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K=4, inner)
+        self.dt_projs_weight = nn.Parameter(torch.stack([t.weight for t in self.dt_projs], dim=0)) # (K=8, inner, rank)
+        self.dt_projs_bias = nn.Parameter(torch.stack([t.bias for t in self.dt_projs], dim=0)) # (K=8, inner)
         del self.dt_projs
         
-        self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=4, merge=True) # (K=4, D, N)
-        self.Ds = self.D_init(self.d_inner, copies=4, merge=True) # (K=4, D, N)
+        self.A_logs = self.A_log_init(self.d_state, self.d_inner, copies=8, merge=True) # (K=8, D, N)
+        self.Ds = self.D_init(self.d_inner, copies=8, merge=True) # (K=8, D, N)
 
         # self.selective_scan = selective_scan_fn
         self.forward_core = self.forward_corev0
@@ -362,7 +369,7 @@ class SS2D(nn.Module):
         A_log = nn.Parameter(A_log)
         A_log._no_weight_decay = True
         return A_log
-
+    
     @staticmethod
     def D_init(d_inner, copies=1, device=None, merge=True):
         # D "skip" parameter
@@ -374,16 +381,45 @@ class SS2D(nn.Module):
         D = nn.Parameter(D)  # Keep in fp32
         D._no_weight_decay = True
         return D
+    
+    @staticmethod
+    def diagonal_zigzag_concat(x, flip_y=False):
+        B, D, H, W = x.shape
+        if flip_y:
+            x = torch.flip(x, dims=[2])  # ↙ = vertical flip + ↘
+
+        x = x.view(B * D, H, W)
+
+        diagonals = [x.diagonal(offset=o, dim1=1, dim2=2) for o in range(-H + 1, W)]
+        out = torch.cat(diagonals, dim=1)  # (B*D, L)
+        return out.view(B, D, -1)
+
 
     def forward_corev0(self, x: torch.Tensor):
         self.selective_scan = selective_scan_fn
         
         B, C, H, W = x.shape
         L = H * W
-        K = 4
+        K = 8
 
-        x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
-        xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
+        # Diagonal directions (B, D, H, W)
+        x_d1 = self.diagonal_zigzag_concat(x)                      # ↘
+        x_d2 = torch.flip(x_d1, dims=[-1])                    # ↖
+        x_d3 = self.diagonal_zigzag_concat(x, flip_y=True)         # ↙
+        x_d4 = torch.flip(x_d3, dims=[-1])                    # ↗
+
+        # Horizontal and vertical (cross scan)
+        x_flat = x.view(B, -1, L)  # →
+        x_transpose = torch.transpose(x, 2, 3).contiguous().view(B, -1, L)  # ↓
+
+        x_hv = torch.stack([x_flat, x_transpose], dim=1)  # (B, 2, D, L)
+        x_hv_flipped = torch.flip(x_hv, dims=[-1])        # (B, 2, D, L) ← ↑
+
+        # Stack into (B, 4, D, L)
+        xs = torch.cat([torch.stack([x_d1, x_d2, x_d3, x_d4], dim=1), x_hv, x_hv_flipped], dim=1)  # (B, 8, D, L)
+
+        #x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
+        #xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
 
         x_dbl = torch.einsum("b k d l, k c d -> b k c l", xs.view(B, K, -1, L), self.x_proj_weight)
         # x_dbl = x_dbl + self.x_proj_bias.view(1, K, -1, 1)
@@ -408,11 +444,28 @@ class SS2D(nn.Module):
         ).view(B, K, -1, L)
         assert out_y.dtype == torch.float
 
-        inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
-        wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+        '''# Flip reverse directions back to forward (↖ and ↗ become ↘ and ↙)
+        inv_y = torch.flip(out_y[:, 1::2], dims=[-1]).view(B, 2, -1, L)  # ↖ and ↗ → ↘ and ↙
 
-        return out_y[:, 0], inv_y[:, 0], wh_y, invwh_y
+        # out_y[:, 0] is ↘ (forward), inv_y[:, 0] is original ↖ reversed
+        # out_y[:, 2] is ↙ (forward), inv_y[:, 1] is original ↗ reversed
+
+        return out_y[:, 0], inv_y[:, 0], out_y[:, 2], inv_y[:, 1]'''
+        # Reverse all 4 backward directions (↖, ↗, ←, ↑)
+        inv_diag = torch.flip(out_y[:, [1, 3]], dims=[-1]).view(B, 2, -1, L)  # Diagonal reversals
+        inv_cross = torch.flip(out_y[:, [6, 7]], dims=[-1]).view(B, 2, -1, L)  # Horizontal and vertical reversals
+
+        # Transpose ↓ and flipped ↑ to keep consistent with H-W orientation
+        vertical = torch.transpose(out_y[:, 5].view(B, -1, W, H), 2, 3).contiguous().view(B, -1, L)
+        inv_vertical = torch.transpose(inv_cross[:, 1].view(B, -1, W, H), 2, 3).contiguous().view(B, -1, L)
+
+        # Return: ↘, ↖→↘, ↙, ↗→↙, →, ←→→, ↓, ↑→↓
+        return (
+            out_y[:, 0], inv_diag[:, 0],  # ↘, reversed ↖
+            out_y[:, 2], inv_diag[:, 1],  # ↙, reversed ↗
+            out_y[:, 4], inv_cross[:, 0], # →, reversed ←
+            vertical, inv_vertical        # ↓, reversed ↑
+        )
 
     # an alternative to forward_corev1
     def forward_corev1(self, x: torch.Tensor):
@@ -461,9 +514,9 @@ class SS2D(nn.Module):
 
         x = x.permute(0, 3, 1, 2).contiguous()
         x = self.act(self.conv2d(x)) # (b, d, h, w)
-        y1, y2, y3, y4 = self.forward_core(x)
+        y1, y2, y3, y4, y5, y6, y7, y8 = self.forward_core(x)
         assert y1.dtype == torch.float32
-        y = y1 + y2 + y3 + y4
+        y = y1 + y2 + y3 + y4 + y5 + y6 + y7 + y8
         y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
         y = self.out_norm(y)
         y = y * F.silu(z)

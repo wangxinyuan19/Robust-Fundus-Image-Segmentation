@@ -50,7 +50,8 @@ class setting_config:
     gpu_id = '0'
     batch_size_full = 2
     batch_size_patch = 512
-    epochs = 50
+    batch_size = 2
+    epochs = 150
 
     work_dir = 'results/' + network + '_' + datasets + '_' + datetime.now().strftime('%A_%d_%B_%Y_%Hh_%Mm_%Ss') + '/'
 
@@ -76,6 +77,14 @@ class setting_config:
         myRandomVerticalFlip(p=0.5),
         myRandomRotation(p=0.5, degree=[0, 360]),
         myResize(patch_input_size_h, patch_input_size_w)
+    ])
+
+    train_transformer = transforms.Compose([
+        myToTensor(),
+        myRandomHorizontalFlip(p=0.5),
+        myRandomVerticalFlip(p=0.5),
+        myRandomRotation(p=0.5, degree=[0, 360]),
+        myResize(full_input_size_h, full_input_size_w)
     ])
 
     test_transformer = transforms.Compose([
