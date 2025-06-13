@@ -1,65 +1,101 @@
 import torch
 
-def test_directional_flipping():
-    B, D, H, W = 1, 1, 4, 4
-    L = H * W
-    x = torch.arange(L, dtype=torch.float32).view(B, D, H, W)
-    print("Input x[0,0]:\n", x[0, 0])
-
-    # Manual Diagonal Scans
-    def diagonal_zigzag_concat(x, flip_y=False):
+class SS2D:
+    @staticmethod
+    def diagonal_zigzag_concat(x):
         B, D, H, W = x.shape
-        if flip_y:
-            x = torch.flip(x, dims=[2])  # Flip vertically for ↙ and ↗
         x = x.view(B * D, H, W)
+
         diagonals = [x.diagonal(offset=o, dim1=1, dim2=2) for o in range(-H + 1, W)]
-        out = torch.cat(diagonals, dim=1)
+        out = torch.cat(diagonals, dim=1)  # (B*D, L)
         return out.view(B, D, -1)
+    
+    @staticmethod
+    def reconstruct_from_diagonal_zigzag(x_diag, N, direction="↘"):
+        """
+        Vectorized diagonal reconstruction from zigzag sequence.
+        Assumes square input (N x N).
+        x_diag: shape (B, D, N*N)
+        direction: "↘", "↙", "↗", "↖"
+        """
+        B, D, L = x_diag.shape
+        assert L == N * N, f"Expected flattened size {N*N}, got {L}"
 
-    # Diagonal directions
-    x_d1 = diagonal_zigzag_concat(x)                      # ↘
-    x_d2 = torch.flip(x_d1, dims=[-1])                    # ↖
-    x_d3 = diagonal_zigzag_concat(x, flip_y=True)         # ↙
-    x_d4 = torch.flip(x_d3, dims=[-1])                    # ↗
+        # Flip helpers
+        def flip(x, direction):
+            if direction == "↙":
+                return torch.flip(x, dims=[-1])
+            elif direction == "↗":
+                return torch.flip(x, dims=[-2])
+            elif direction == "↖":
+                return torch.flip(x, dims=[-1, -2])
+            else:
+                return x
 
-    # Cross scan
-    x_flat = x.view(B, D, -1)                             # →
-    x_transpose = torch.transpose(x, 2, 3).contiguous().view(B, D, -1)  # ↓
-    x_left = torch.flip(x_flat, dims=[-1])                # ←
-    x_up = torch.flip(x_transpose, dims=[-1])             # ↑
+        # Total number of diagonals
+        num_diags = 2 * N - 1
+        device = x_diag.device
 
-    # Simulate out_y (B, 8, D, L)
-    out_y = torch.cat([
-        x_d1, x_d2, x_d3, x_d4,
-        x_flat, x_transpose, x_left, x_up
-    ], dim=0).view(1, 8, 1, L)
+        # Precompute all (row, col) indices for each diagonal
+        coords = []
+        for offset in range(-N + 1, N):
+            if offset >= 0:
+                r = torch.arange(N - offset)
+                c = r + offset
+            else:
+                c = torch.arange(N + offset)
+                r = c - offset
+            coords.append(torch.stack([r, c], dim=1))  # shape: (len, 2)
 
-    # ===== Reverse all backward directions to match their forward versions =====
-    inv_diag = torch.flip(out_y[:, [1, 3]], dims=[-1]).view(B, 2, -1, L)
-    inv_cross = torch.flip(out_y[:, [6, 7]], dims=[-1]).view(B, 2, -1, L)
+        coords = torch.cat(coords, dim=0)  # shape: (N*N, 2)
+        row_idx, col_idx = coords[:, 0], coords[:, 1]  # each of shape (N*N,)
 
-    vertical = torch.transpose(out_y[:, 5].view(B, -1, W, H), 2, 3).contiguous().view(B, -1, L)
-    inv_vertical = torch.transpose(inv_cross[:, 1].view(B, -1, W, H), 2, 3).contiguous().view(B, -1, L)
+        # Expand to full shape
+        base = torch.zeros(B * D, N, N, device=device)
+        flat = x_diag.view(B * D, -1)
 
-    # ==== Final Comparison Output ====
-    print("\n↘ Diagonal Flattened:\n", out_y[0, 0, 0])
-    print("↖ Flipped Back:\n", inv_diag[0, 0, :])
+        # Create flattened row/col indices for scatter_add_
+        row_idx = row_idx.unsqueeze(0).expand(B * D, -1)
+        col_idx = col_idx.unsqueeze(0).expand(B * D, -1)
+        batch_idx = torch.arange(B * D, device=device).unsqueeze(1).expand_as(row_idx)
 
-    print("\n↙ Anti-Diagonal Flattened:\n", out_y[0, 2, 0])
-    print("↗ Flipped Back:\n", inv_diag[0, 1, :])
+        # Use scatter_add to reconstruct
+        recon = torch.zeros(B * D, N, N, device=device)
+        recon.index_put_((batch_idx, row_idx, col_idx), flat, accumulate=True)
 
-    print("\n→ Horizontal:\n", out_y[0, 4, 0])
-    print("← Flipped Back:\n", inv_cross[0, 0, :])
+        recon = recon.view(B, D, N, N)
+        return flip(recon, direction)
 
-    print("\n↓ Vertical:\n", vertical[0])
-    print("↑ Flipped Back:\n", inv_vertical[0])
 
-    # Optional: assert equality to validate correctness
-    assert torch.allclose(out_y[0, 0, 0], inv_diag[0, 0, :]), "↘ vs flipped ↖ mismatch"
-    assert torch.allclose(out_y[0, 2, 0], inv_diag[0, 1, :]), "↙ vs flipped ↗ mismatch"
-    assert torch.allclose(out_y[0, 4, 0], inv_cross[0, 0, :]), "→ vs flipped ← mismatch"
-    assert torch.allclose(vertical[0], inv_vertical[0]), "↓ vs flipped ↑ mismatch"
 
-    print("\n✅ All directions flipped correctly!")
 
-test_directional_flipping()
+
+# Define a 4x4 image with values 1 to 16
+x = torch.arange(1, 17, dtype=torch.float32).reshape(1, 1, 4, 4)
+
+# Create flipped versions
+x_flip_h = torch.flip(x, dims=[3])     # horizontal flip (↙)
+x_flip_v = torch.flip(x, dims=[2])     # vertical flip (↗)
+x_flip_hv = torch.flip(x, dims=[2, 3]) # horizontal + vertical flip (↖)
+
+# Apply diagonal scan
+x_main_d = SS2D.diagonal_zigzag_concat(x)        # ↘
+x_flip_h_d = SS2D.diagonal_zigzag_concat(x_flip_h)  # ↙
+x_flip_v_d = SS2D.diagonal_zigzag_concat(x_flip_v)  # ↗
+x_flip_hv_d = SS2D.diagonal_zigzag_concat(x_flip_hv) # ↖
+
+x = torch.arange(1, 17).reshape(1, 1, 4, 4).float()
+x_recon_main = SS2D.reconstruct_from_diagonal_zigzag(x_main_d, 4, "↘")
+x_recon_h = SS2D.reconstruct_from_diagonal_zigzag(x_flip_h_d, 4, "↙")
+x_recon_v = SS2D.reconstruct_from_diagonal_zigzag(x_flip_v_d, 4, "↗")
+x_recon_hv = SS2D.reconstruct_from_diagonal_zigzag(x_flip_hv_d, 4, "↖")
+
+xs = torch.cat([torch.stack([x_main_d, x_flip_h_d, x_flip_v_d, x_flip_hv_d], dim=1)])
+
+print("Original:\n", x.view(4, 4))
+print("\n↘ Main diagonal zigzag:\n", x_flip_hv_d.view(-1))
+print("Reconstructed:\n", x_recon_main.view(4, 4))
+print("Reconstructed:\n", x_recon_h.view(4, 4))
+print("Reconstructed:\n", x_recon_v.view(4, 4))
+print("Reconstructed:\n", x_recon_hv.view(4, 4))
+print("Summed up: \n", xs)

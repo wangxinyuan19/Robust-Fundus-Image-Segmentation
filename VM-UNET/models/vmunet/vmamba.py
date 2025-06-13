@@ -383,17 +383,70 @@ class SS2D(nn.Module):
         return D
     
     @staticmethod
-    def diagonal_zigzag_concat(x, flip_y=False):
+    def diagonal_zigzag_concat(x):
         B, D, H, W = x.shape
-        if flip_y:
-            x = torch.flip(x, dims=[2])  # ↙ = vertical flip + ↘
 
         x = x.view(B * D, H, W)
 
         diagonals = [x.diagonal(offset=o, dim1=1, dim2=2) for o in range(-H + 1, W)]
         out = torch.cat(diagonals, dim=1)  # (B*D, L)
         return out.view(B, D, -1)
+    
+    @staticmethod
+    def reconstruct_from_diagonal_zigzag(x_diag, N, direction="↘"):
+        """
+        Vectorized diagonal reconstruction from zigzag sequence.
+        Assumes square input (N x N).
+        x_diag: shape (B, D, N*N)
+        direction: "↘", "↙", "↗", "↖"
+        """
+        B, D, L = x_diag.shape
+        assert L == N * N, f"Expected flattened size {N*N}, got {L}"
 
+        # Flip helpers
+        def flip(x, direction):
+            if direction == "↙":
+                return torch.flip(x, dims=[-1])
+            elif direction == "↗":
+                return torch.flip(x, dims=[-2])
+            elif direction == "↖":
+                return torch.flip(x, dims=[-1, -2])
+            else:
+                return x
+
+        # Total number of diagonals
+        num_diags = 2 * N - 1
+        device = x_diag.device
+
+        # Precompute all (row, col) indices for each diagonal
+        coords = []
+        for offset in range(-N + 1, N):
+            if offset >= 0:
+                r = torch.arange(N - offset)
+                c = r + offset
+            else:
+                c = torch.arange(N + offset)
+                r = c - offset
+            coords.append(torch.stack([r, c], dim=1))  # shape: (len, 2)
+
+        coords = torch.cat(coords, dim=0)  # shape: (N*N, 2)
+        row_idx, col_idx = coords[:, 0], coords[:, 1]  # each of shape (N*N,)
+
+        # Expand to full shape
+        base = torch.zeros(B * D, N, N, device=device)
+        flat = x_diag.view(B * D, -1)
+
+        # Create flattened row/col indices for scatter_add_
+        row_idx = row_idx.unsqueeze(0).expand(B * D, -1)
+        col_idx = col_idx.unsqueeze(0).expand(B * D, -1)
+        batch_idx = torch.arange(B * D, device=device).unsqueeze(1).expand_as(row_idx)
+
+        # Use scatter_add to reconstruct
+        recon = torch.zeros(B * D, N, N, device=device)
+        recon.index_put_((batch_idx, row_idx, col_idx), flat, accumulate=True)
+
+        recon = recon.view(B, D, N, N)
+        return flip(recon, direction)
 
     def forward_corev0(self, x: torch.Tensor):
         self.selective_scan = selective_scan_fn
@@ -402,11 +455,16 @@ class SS2D(nn.Module):
         L = H * W
         K = 8
 
+        # Create flipped versions of x
+        x_flip_h = torch.flip(x, dims=[3])     # horizontal flip (↙)
+        x_flip_v = torch.flip(x, dims=[2])     # vertical flip (↗)
+        x_flip_hv = torch.flip(x, dims=[2, 3]) # horizontal + vertical flip (↖)
+        
         # Diagonal directions (B, D, H, W)
-        x_d1 = self.diagonal_zigzag_concat(x)                      # ↘
-        x_d2 = torch.flip(x_d1, dims=[-1])                    # ↖
-        x_d3 = self.diagonal_zigzag_concat(x, flip_y=True)         # ↙
-        x_d4 = torch.flip(x_d3, dims=[-1])                    # ↗
+        x_main_d = SS2D.diagonal_zigzag_concat(x)                      # ↘
+        x_flip_h_d =  SS2D.diagonal_zigzag_concat(x_flip_h)            # ↙
+        x_flip_v_d = SS2D.diagonal_zigzag_concat(x_flip_v)             # ↗
+        x_flip_hv_d = SS2D.diagonal_zigzag_concat(x_flip_hv)           # ↖
 
         # Horizontal and vertical (cross scan)
         x_flat = x.view(B, -1, L)  # →
@@ -416,7 +474,7 @@ class SS2D(nn.Module):
         x_hv_flipped = torch.flip(x_hv, dims=[-1])        # (B, 2, D, L) ← ↑
 
         # Stack into (B, 4, D, L)
-        xs = torch.cat([torch.stack([x_d1, x_d2, x_d3, x_d4], dim=1), x_hv, x_hv_flipped], dim=1)  # (B, 8, D, L)
+        xs = torch.cat([torch.stack([x_main_d, x_flip_h_d, x_flip_v_d, x_flip_hv_d], dim=1), x_hv, x_hv_flipped], dim=1)  # (B, 8, D, L)
 
         #x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
         #xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
@@ -451,6 +509,11 @@ class SS2D(nn.Module):
         # out_y[:, 2] is ↙ (forward), inv_y[:, 1] is original ↗ reversed
 
         return out_y[:, 0], inv_y[:, 0], out_y[:, 2], inv_y[:, 1]'''
+
+        
+
+
+
         # Reverse all 4 backward directions (↖, ↗, ←, ↑)
         inv_diag = torch.flip(out_y[:, [1, 3]], dims=[-1]).view(B, 2, -1, L)  # Diagonal reversals
         inv_cross = torch.flip(out_y[:, [6, 7]], dims=[-1]).view(B, 2, -1, L)  # Horizontal and vertical reversals
@@ -467,45 +530,6 @@ class SS2D(nn.Module):
             vertical, inv_vertical        # ↓, reversed ↑
         )
 
-    # an alternative to forward_corev1
-    def forward_corev1(self, x: torch.Tensor):
-        self.selective_scan = selective_scan_fn_v1
-
-        B, C, H, W = x.shape
-        L = H * W
-        K = 4
-
-        x_hwwh = torch.stack([x.view(B, -1, L), torch.transpose(x, dim0=2, dim1=3).contiguous().view(B, -1, L)], dim=1).view(B, 2, -1, L)
-        xs = torch.cat([x_hwwh, torch.flip(x_hwwh, dims=[-1])], dim=1) # (b, k, d, l)
-
-        x_dbl = torch.einsum("b k d l, k c d -> b k c l", xs.view(B, K, -1, L), self.x_proj_weight)
-        # x_dbl = x_dbl + self.x_proj_bias.view(1, K, -1, 1)
-        dts, Bs, Cs = torch.split(x_dbl, [self.dt_rank, self.d_state, self.d_state], dim=2)
-        dts = torch.einsum("b k r l, k d r -> b k d l", dts.view(B, K, -1, L), self.dt_projs_weight)
-        # dts = dts + self.dt_projs_bias.view(1, K, -1, 1)
-
-        xs = xs.float().view(B, -1, L) # (b, k * d, l)
-        dts = dts.contiguous().float().view(B, -1, L) # (b, k * d, l)
-        Bs = Bs.float().view(B, K, -1, L) # (b, k, d_state, l)
-        Cs = Cs.float().view(B, K, -1, L) # (b, k, d_state, l)
-        Ds = self.Ds.float().view(-1) # (k * d)
-        As = -torch.exp(self.A_logs.float()).view(-1, self.d_state)  # (k * d, d_state)
-        dt_projs_bias = self.dt_projs_bias.float().view(-1) # (k * d)
-
-        out_y = self.selective_scan(
-            xs, dts, 
-            As, Bs, Cs, Ds,
-            delta_bias=dt_projs_bias,
-            delta_softplus=True,
-        ).view(B, K, -1, L)
-        assert out_y.dtype == torch.float
-
-        inv_y = torch.flip(out_y[:, 2:4], dims=[-1]).view(B, 2, -1, L)
-        wh_y = torch.transpose(out_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-        invwh_y = torch.transpose(inv_y[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
-
-        return out_y[:, 0], inv_y[:, 0], wh_y, invwh_y
-
     def forward(self, x: torch.Tensor, **kwargs):
         B, H, W, C = x.shape
 
@@ -515,9 +539,21 @@ class SS2D(nn.Module):
         x = x.permute(0, 3, 1, 2).contiguous()
         x = self.act(self.conv2d(x)) # (b, d, h, w)
         y1, y2, y3, y4, y5, y6, y7, y8 = self.forward_core(x)
+        # Assume H == W
+        # Diagonal: ↘, ↖, ↙, ↗
+        d1 = self.reconstruct_zigzag_diagonal(y1, H, '↘')
+        d2 = self.reconstruct_zigzag_diagonal(y2, H, '↖')
+        d3 = self.reconstruct_zigzag_diagonal(y3, H, '↙')
+        d4 = self.reconstruct_zigzag_diagonal(y4, H, '↗')
+
+        # Horizontal and Vertical: →, ←, ↓, ↑
+        h1 = y5.view(B, -1, H, W)  # →
+        h2 = y6.view(B, -1, H, W)  # ←
+        v1 = y7.view(B, -1, H, W)  # ↓
+        v2 = y8.view(B, -1, H, W)  # ↑
         assert y1.dtype == torch.float32
-        y = y1 + y2 + y3 + y4 + y5 + y6 + y7 + y8
-        y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
+        y_sum = d1 + d2 + d3 + d4 + h1 + h2 + v1 + v2
+        y = y_sum.permute(0, 2, 3, 1).contiguous()  # (B, H, W, C)
         y = self.out_norm(y)
         y = y * F.silu(z)
         out = self.out_proj(y)
