@@ -94,8 +94,8 @@ xs = torch.cat([torch.stack([x_main_d, x_flip_h_d, x_flip_v_d, x_flip_hv_d], dim
 
 print("Original:\n", x.view(4, 4))
 print("\n↘ Main diagonal zigzag:\n", x_flip_hv_d.view(-1))
-print("Reconstructed:\n", x_recon_main.view(4, 4))
-print("Reconstructed:\n", x_recon_h.view(4, 4))
+print("Reconstructed:\n", x_recon_main.view(1, -1, 16))
+print("Reconstructed:\n", x_recon_h.view(1, -1, 16))
 print("Reconstructed:\n", x_recon_v.view(4, 4))
 print("Reconstructed:\n", x_recon_hv.view(4, 4))
 print("Summed up: \n", xs)
