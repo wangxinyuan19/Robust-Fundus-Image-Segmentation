@@ -90,12 +90,34 @@ x_recon_h = SS2D.reconstruct_from_diagonal_zigzag(x_flip_h_d, 4, "↙")
 x_recon_v = SS2D.reconstruct_from_diagonal_zigzag(x_flip_v_d, 4, "↗")
 x_recon_hv = SS2D.reconstruct_from_diagonal_zigzag(x_flip_hv_d, 4, "↖")
 
-xs = torch.cat([torch.stack([x_main_d, x_flip_h_d, x_flip_v_d, x_flip_hv_d], dim=1)])
+#xs = torch.cat([torch.stack([x_main_d, x_flip_h_d, x_flip_v_d, x_flip_hv_d], dim=1)])
+# Horizontal and vertical directions
+x_hv = torch.stack([x.view(1, -1, 16), torch.transpose(x, dim0=2, dim1=3).contiguous().view(1, -1, 16)], dim=1).view(1, 2, -1, 16)
+flipped_x_hv = torch.flip(x_hv, dims=[-1])       
+xs = torch.cat([torch.stack([x_main_d, x_flip_h_d, x_flip_v_d, x_flip_hv_d], dim=1), x_hv, flipped_x_hv], dim=1)  # (B, 8, D, L)
+out_y = xs
+H=4
+B=1
+L=16
+W=4
+# Reconstruct the 4 diagonal scanning paths back to matrix
+recon_main_d = SS2D.reconstruct_from_diagonal_zigzag(out_y[:, 0], H, "↘").view(B, -1, L)
+recon_h_d = SS2D.reconstruct_from_diagonal_zigzag(out_y[:, 1], H, "↙").view(B, -1, L)
+recon_v_d = SS2D.reconstruct_from_diagonal_zigzag(out_y[:, 2], H, "↗").view(B, -1, L)
+recon_hv_d = SS2D.reconstruct_from_diagonal_zigzag(out_y[:, 3], H, "↖").view(B, -1, L)
 
+# Reconstruct the 4 horizontal and vertical scanning path to matrix
+flipped_back_directions = torch.flip(out_y[:, 6:8], dims=[-1]).view(B, 2, -1, L)
+recon_down_direction1 = torch.transpose(out_y[:, 5].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+recon_down_direction2 = torch.transpose(flipped_back_directions[:, 1].view(B, -1, W, H), dim0=2, dim1=3).contiguous().view(B, -1, L)
+
+y1, y2, y3, y4, y5, y6, y7, y8 = recon_main_d, recon_h_d, recon_v_d, recon_hv_d, out_y[:, 4], flipped_back_directions[:, 0], recon_down_direction1, recon_down_direction2
 print("Original:\n", x.view(4, 4))
-print("\n↘ Main diagonal zigzag:\n", x_flip_hv_d.view(-1))
+'''print("\n↘ Main diagonal zigzag:\n", x_flip_hv_d.view(-1))
 print("Reconstructed:\n", x_recon_main.view(1, -1, 16))
 print("Reconstructed:\n", x_recon_h.view(1, -1, 16))
 print("Reconstructed:\n", x_recon_v.view(4, 4))
 print("Reconstructed:\n", x_recon_hv.view(4, 4))
-print("Summed up: \n", xs)
+print("Summed up: \n", xs)'''
+
+print(y1+y2+y3+y4+y5+y6+y7+y8)

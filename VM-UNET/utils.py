@@ -539,3 +539,45 @@ def test_single_volume(image, label, net, classes, patch_size=[256, 256],
         sitk.WriteImage(lab_itk, test_save_path + '/'+ case + "_gt.nii.gz")
         # cv2.imwrite(test_save_path + '/'+case + '.png', prediction*255)
     return metric_list
+
+def compute_erf_map(model, input_tensor, target_coord=None):
+    """
+    Compute gradient-based ERF map for VM-UNet model and input tensor.
+    Args:
+        model: segmentation model
+        input_tensor: torch.Tensor of shape [1, C, H, W], requires_grad=True
+        target_coord: (h, w) target output pixel. Defaults to center pixel.
+
+    Returns:
+        erf_map: normalized gradient-based ERF as np.ndarray [H, W]
+    """
+    model.eval()
+    input_tensor = input_tensor.cuda()
+    input_tensor.requires_grad_(True)
+
+    with torch.enable_grad():
+        output = model(input_tensor)
+        if isinstance(output, tuple):
+            output = output[0]
+
+        _, _, H, W = output.shape
+        if target_coord is None:
+            target_coord = (H // 2, W // 2)
+
+        output_pixel = output[0, 0, target_coord[0], target_coord[1]]
+        output_pixel.backward()
+
+        grad = input_tensor.grad[0].abs().mean(dim=0)  # [H, W]
+        grad = (grad - grad.min()) / (grad.max() - grad.min() + 1e-8)
+        return grad.detach().cpu().numpy()
+
+def save_erf_map(erf_map, save_path='erf_map.png'):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.figure(figsize=(6, 6))
+    plt.imshow(erf_map, cmap='Greens', vmin=0, vmax=0.005)  # or a known range
+    plt.colorbar()
+    plt.title('ERF Map (Center Pixel)')
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()

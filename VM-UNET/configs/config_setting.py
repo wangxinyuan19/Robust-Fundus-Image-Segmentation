@@ -51,12 +51,12 @@ class setting_config:
     batch_size_full = 2
     batch_size_patch = 512
     batch_size = 2
-    epochs = 150
+    epochs = 200
 
     work_dir = 'results/' + network + '_' + datasets + '_' + datetime.now().strftime('%A_%d_%B_%Y_%Hh_%Mm_%Ss') + '/'
 
     print_interval = 10
-    val_interval = 10
+    val_interval = 1
     save_interval = 10
     threshold = 0.5
     only_test_and_save_figs = False

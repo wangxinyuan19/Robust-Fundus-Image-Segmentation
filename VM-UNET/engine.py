@@ -4,6 +4,9 @@ import torch
 from torch.cuda.amp import autocast as autocast
 from sklearn.metrics import confusion_matrix
 from utils import save_imgs
+import os
+from utils import compute_erf_map, save_erf_map
+
 
 def train_one_epoch_dual(full_loader, patch_loader, model, criterion, optimizer, scheduler, epoch, step, logger, config, writer):
     model.train()
@@ -114,6 +117,16 @@ def val_one_epoch(test_loader,
             img, msk = img.cuda(non_blocking=True).float(), msk.cuda(non_blocking=True).float()
 
             out = model(img)
+
+            # Only compute ERF for the first batch in each epoch
+            if i == 0 and epoch % config.val_interval == 0:
+                with torch.enable_grad():
+                    erf_input = img[:1].cuda().float().requires_grad_()
+                    erf_map = compute_erf_map(model, erf_input)
+                    save_path = os.path.join(config.work_dir, 'outputs', f'erf_epoch{epoch}.png')
+                    save_erf_map(erf_map, save_path)
+
+
             loss = criterion(out, msk)
 
             loss_list.append(loss.item())
