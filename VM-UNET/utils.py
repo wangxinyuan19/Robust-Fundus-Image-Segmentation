@@ -367,6 +367,41 @@ class GT_BceDiceLoss(nn.Module):
         gt_loss = self.bcedice(gt_pre5, target) * 0.1 + self.bcedice(gt_pre4, target) * 0.2 + self.bcedice(gt_pre3, target) * 0.3 + self.bcedice(gt_pre2, target) * 0.4 + self.bcedice(gt_pre1, target) * 0.5
         return bcediceloss + gt_loss
 
+import torch
+import torch.nn as nn
+
+class FocalTverskyLoss(nn.Module):
+    def __init__(self, alpha=0.7, beta=0.3, gamma=0.75, smooth=1e-6):
+        super(FocalTverskyLoss, self).__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.smooth = smooth
+
+    def forward(self, pred, target):
+        # Apply sigmoid if not already
+        pred = torch.sigmoid(pred)
+        
+        # Ensure target is float
+        target = target.float()
+        
+        batch_size = pred.size(0)
+        loss = 0.0
+        
+        for i in range(batch_size):
+            # Flatten prediction and target for each image
+            p = pred[i].view(-1)
+            t = target[i].view(-1)
+            
+            TP = (p * t).sum()
+            FP = ((1 - t) * p).sum()
+            FN = ((1 - p) * t).sum()
+            
+            tversky = (TP + self.smooth) / (TP + self.alpha * FP + self.beta * FN + self.smooth)
+            focal_tversky = torch.pow((1 - tversky), self.gamma)
+            loss += focal_tversky
+        
+        return loss / batch_size
 
 
 class myToTensor:

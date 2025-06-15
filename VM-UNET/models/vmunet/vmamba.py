@@ -609,26 +609,35 @@ class SS2D(nn.Module):
     
     @staticmethod
     def diagonal_zigzag_concat(x):
+        """
+        Diagonal zigzag scan (↘ with alternating direction) for input of shape (B, D, H, W)
+        Output: (B, D, H*W)
+        """
         B, D, H, W = x.shape
-
         x = x.view(B * D, H, W)
 
-        diagonals = [x.diagonal(offset=o, dim1=1, dim2=2) for o in range(-H + 1, W)]
-        out = torch.cat(diagonals, dim=1)  # (B*D, L)
+        diagonals = []
+        for idx, o in enumerate(range(-H + 1, W)):
+            diag = x.diagonal(offset=o, dim1=1, dim2=2)  # shape: (B*D, len)
+            if idx % 2 == 1:
+                diag = torch.flip(diag, dims=[1])  # reverse each diag
+            diagonals.append(diag)
+
+        # Concatenate diagonals of variable length directly
+        out = torch.cat(diagonals, dim=1)  # (B*D, H*W)
         return out.view(B, D, -1)
     
     @staticmethod
     def reconstruct_from_diagonal_zigzag(x_diag, N, direction="↘"):
         """
-        Vectorized diagonal reconstruction from zigzag sequence.
-        Assumes square input (N x N).
-        x_diag: shape (B, D, N*N)
-        direction: "↘", "↙", "↗", "↖"
+        Reconstruct 2D square maps (N x N) from diagonal zigzag sequence.
+        x_diag: (B, D, N*N)
+        direction: one of ["↘", "↙", "↗", "↖"]
         """
         B, D, L = x_diag.shape
         assert L == N * N, f"Expected flattened size {N*N}, got {L}"
+        device = x_diag.device
 
-        # Flip helpers
         def flip(x, direction):
             if direction == "↙":
                 return torch.flip(x, dims=[-1])
@@ -639,35 +648,30 @@ class SS2D(nn.Module):
             else:
                 return x
 
-        # Total number of diagonals
-        num_diags = 2 * N - 1
-        device = x_diag.device
-
-        # Precompute all (row, col) indices for each diagonal
         coords = []
-        for offset in range(-N + 1, N):
-            if offset >= 0:
-                r = torch.arange(N - offset)
-                c = r + offset
+        for o in range(-N + 1, N):
+            if o >= 0:
+                r = torch.arange(N - o)
+                c = r + o
             else:
-                c = torch.arange(N + offset)
-                r = c - offset
-            coords.append(torch.stack([r, c], dim=1))  # shape: (len, 2)
+                c = torch.arange(N + o)
+                r = c - o
+            diag = torch.stack([r, c], dim=1)
+            if (o + N - 1) % 2 == 1:
+                diag = diag.flip(0)
+            coords.append(diag)
 
-        coords = torch.cat(coords, dim=0)  # shape: (N*N, 2)
-        row_idx, col_idx = coords[:, 0], coords[:, 1]  # each of shape (N*N,)
+        coords = torch.cat(coords, dim=0)  # shape: (L, 2)
+        row_idx, col_idx = coords[:, 0], coords[:, 1]
 
-        # Expand to full shape
         base = torch.zeros(B * D, N, N, device=device)
-        flat = x_diag.contiguous().view(B * D, -1)
+        flat = x_diag.reshape(B * D, -1)
 
-        # Create flattened row/col indices for scatter_add_
         row_idx = row_idx.unsqueeze(0).expand(B * D, -1)
         col_idx = col_idx.unsqueeze(0).expand(B * D, -1)
         batch_idx = torch.arange(B * D, device=device).unsqueeze(1).expand_as(row_idx)
 
-        # Use scatter_add to reconstruct
-        recon = torch.zeros(B * D, N, N, device=device)
+        recon = torch.zeros_like(base)
         recon.index_put_((batch_idx, row_idx, col_idx), flat, accumulate=True)
 
         recon = recon.view(B, D, N, N)
@@ -755,7 +759,7 @@ class SS2D(nn.Module):
         x = self.act(self.conv2d(x)) # (b, d, h, w)
         y1, y2, y3, y4, y5, y6, y7, y8 = self.forward_core(x)
         assert y1.dtype == torch.float32
-        y = y1 + y2 + y3 + y4 +y5 +y6 + y7 + y8
+        y = y1 + y2 + y3 + y4 + y5 + y6 + y7 + y8
         y = torch.transpose(y, dim0=1, dim1=2).contiguous().view(B, H, W, -1)
         y = self.out_norm(y)
         y = y * F.silu(z)
